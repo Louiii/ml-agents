@@ -5,7 +5,7 @@ The stair climber environment is built on top of the Walker environment, it stil
 A 40M training step checkpoint is included in `results/StairWalker/WalkerDynamic`.
 You can continue training with:
 ```bash
-mlagents-learn config/ppo/Walker.yaml --run-id=results/StairWalker/WalkerDynamic. --no-graphics --resume
+mlagents-learn config/ppo/Walker.yaml --run-id=StairWalker --no-graphics --resume
 ```
 
 
