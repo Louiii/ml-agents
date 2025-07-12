@@ -14,6 +14,11 @@ public class WalkerAgent : Agent
     [SerializeField]
     //The walking speed to try and achieve
     private float m_TargetWalkingSpeed = 10;
+    private float m_LastHipYPosition;
+    private float m_HighestStepY = 0f;
+    private bool m_IsLanding = false;
+    private Transform m_StairApproachTarget; // An invisible waypoint
+    private bool m_IsApproachingStairs;      // Tracks which stage we're in
 
     public float MTargetWalkingSpeed // property
     {
@@ -49,6 +54,11 @@ public class WalkerAgent : Agent
     public Transform armR;
     public Transform forearmR;
     public Transform handR;
+    public Transform staircase;
+    public EnvironmentController environmentController;
+    public TargetController targetController;
+    public GameObject footTargetVisualizer;
+    public GameObject waypointVisualizer;
 
     //This will be used as a stabilized model space reference point for observations
     //Because ragdolls can move erratically during training, using a stabilized reference transform improves learning
@@ -63,6 +73,16 @@ public class WalkerAgent : Agent
     {
         m_OrientationCube = GetComponentInChildren<OrientationCubeController>();
         m_DirectionIndicator = GetComponentInChildren<DirectionIndicator>();
+
+        // Create the invisible waypoint object
+        m_StairApproachTarget = new GameObject("StairApproachTarget").transform;
+
+        // Attach the yellow ball to our waypoint
+        if (waypointVisualizer != null)
+        {
+            waypointVisualizer.transform.SetParent(m_StairApproachTarget);
+            waypointVisualizer.transform.localPosition = Vector3.zero;
+        }
 
         //Setup each body part
         m_JdController = GetComponent<JointDriveController>();
@@ -93,6 +113,19 @@ public class WalkerAgent : Agent
     /// </summary>
     public override void OnEpisodeBegin()
     {
+        m_IsApproachingStairs = true; // Always start by approaching the stairs
+
+        // Call the environment controller to reset the staircase position
+        if (environmentController != null)
+        {
+            environmentController.ResetEnvironment();
+        }
+        // NOW, TELL THE TARGET TO MOVE ONTO THE NEW STAIRS
+        if (targetController != null)
+        {
+            targetController.PlaceTargetOnStep();
+        }
+
         //Reset all of the body parts
         foreach (var bodyPart in m_JdController.bodyPartsDict.Values)
         {
@@ -109,6 +142,8 @@ public class WalkerAgent : Agent
             randomizeWalkSpeedEachEpisode ? Random.Range(0.1f, m_maxWalkingSpeed) : MTargetWalkingSpeed;
 
         SetResetParameters();
+        m_LastHipYPosition = hips.position.y;
+        m_HighestStepY = 0f; // Reset the high score for the new episode
     }
 
     /// <summary>
@@ -134,11 +169,46 @@ public class WalkerAgent : Agent
         }
     }
 
+    // This method is called by a foot when it touches a step
+    public void AchievedNewStep(float stepWorldY)
+    {
+        // A successful step ends the landing phase
+        LandedOnNewStep();
+
+        // Check if this step is higher than our previous record
+        if (stepWorldY > m_HighestStepY + 0.1f) // The 0.1f is a small threshold
+        {
+            // Give a large, one-time bonus for making real progress
+            AddReward(0.5f);
+            // Update our new high score
+            m_HighestStepY = stepWorldY;
+            Debug.Log("LEVEL UP! Achieved a new higher step!");
+        }
+    }
+
     /// <summary>
     /// Loop over body parts to add them to observation.
     /// </summary>
     public override void CollectObservations(VectorSensor sensor)
     {
+        // --- NEW: Add observation for the foot target ---
+        if (footTargetVisualizer != null && footTargetVisualizer.activeInHierarchy)
+        {
+            // Vector from hips to the foot target, in the hips' local space
+            sensor.AddObservation(hips.InverseTransformPoint(footTargetVisualizer.transform.position));
+            // Vector from the left foot to the target
+            sensor.AddObservation(footL.InverseTransformPoint(footTargetVisualizer.transform.position));
+            // Vector from the right foot to the target
+            sensor.AddObservation(footR.InverseTransformPoint(footTargetVisualizer.transform.position));
+        }
+        else
+        {
+            // If the target is inactive, send placeholder zeros to keep the observation size consistent
+            sensor.AddObservation(Vector3.zero);
+            sensor.AddObservation(Vector3.zero);
+            sensor.AddObservation(Vector3.zero);
+        }
+
         var cubeForward = m_OrientationCube.transform.forward;
 
         //velocity we want to match
@@ -159,6 +229,14 @@ public class WalkerAgent : Agent
 
         //Position of target position relative to cube
         sensor.AddObservation(m_OrientationCube.transform.InverseTransformPoint(target.transform.position));
+
+        // Add these new lines to observe the staircase
+        // Position of staircase relative to the agent
+        sensor.AddObservation(transform.InverseTransformPoint(staircase.position));
+
+        // Rotation of the staircase RELATIVE to the agent's orientation cube
+        Quaternion relativeRotation = Quaternion.Inverse(m_OrientationCube.transform.rotation) * staircase.rotation;
+        sensor.AddObservation(relativeRotation);
 
         foreach (var bodyPart in m_JdController.bodyPartsList)
         {
@@ -205,11 +283,34 @@ public class WalkerAgent : Agent
         bpDict[forearmR].SetJointStrength(continuousActions[++i]);
     }
 
-    //Update OrientationCube and DirectionIndicator
     void UpdateOrientationObjects()
     {
-        m_WorldDirToWalk = target.position - hips.position;
-        m_OrientationCube.UpdateOrientation(hips, target);
+        Transform currentTarget = target; // Default to the final green target
+
+        // If we are in the first stage (approaching the stairs)
+        if (m_IsApproachingStairs)
+        {
+            // Make the yellow ball visible
+            if (waypointVisualizer != null) waypointVisualizer.SetActive(true);
+
+            // (The waypoint calculation logic is the same)
+            Vector3 stairBackDirection = -staircase.right;
+            float stepDepth = staircase.lossyScale.x / 2.0f;
+            Vector3 calcPos = staircase.position + stairBackDirection * (stepDepth + 5.0f);
+            Vector3 waypointPosition = new Vector3(calcPos.x, 2.0f, calcPos.z);
+            m_StairApproachTarget.position = waypointPosition;
+
+            currentTarget = m_StairApproachTarget;
+        }
+        else
+        {
+            // Hide the yellow ball when it's not the target
+            if (waypointVisualizer != null) waypointVisualizer.SetActive(false);
+        }
+
+        // This now dynamically points the cube at the correct target
+        m_WorldDirToWalk = currentTarget.position - hips.position;
+        m_OrientationCube.UpdateOrientation(hips, currentTarget);
         if (m_DirectionIndicator)
         {
             m_DirectionIndicator.MatchOrientation(m_OrientationCube.transform);
@@ -219,40 +320,122 @@ public class WalkerAgent : Agent
     void FixedUpdate()
     {
         UpdateOrientationObjects();
+        // --- VISIBILITY CONTROL ---
+        // Turn the final green target's renderer ON only in Phase 2
+        if(target != null) target.GetComponent<MeshRenderer>().enabled = !m_IsApproachingStairs;
+
+        // --- ALWAYS-ON LOGIC (applies in all phases) ---
+        AddReward(-0.001f);
 
         var cubeForward = m_OrientationCube.transform.forward;
-
-        // Set reward for this step according to mixture of the following elements.
-        // a. Match target speed
-        //This reward will approach 1 if it matches perfectly and approach zero as it deviates
-        var matchSpeedReward = GetMatchingVelocityReward(cubeForward * MTargetWalkingSpeed, GetAvgVelocity());
-
-        //Check for NaNs
-        if (float.IsNaN(matchSpeedReward))
-        {
-            throw new ArgumentException(
-                "NaN in moveTowardsTargetReward.\n" +
-                $" cubeForward: {cubeForward}\n" +
-                $" hips.velocity: {m_JdController.bodyPartsDict[hips].rb.velocity}\n" +
-                $" maximumWalkingSpeed: {m_maxWalkingSpeed}"
-            );
-        }
-
-        // b. Rotation alignment with target direction.
-        //This reward will approach 1 if it faces the target direction perfectly and approach zero as it deviates
         var lookAtTargetReward = (Vector3.Dot(cubeForward, head.forward) + 1) * .5F;
+        AddReward(lookAtTargetReward * 0.1f);
 
-        //Check for NaNs
-        if (float.IsNaN(lookAtTargetReward))
+        if (!m_IsLanding && Vector3.Dot(hips.up, Vector3.up) < 0.5f)
         {
-            throw new ArgumentException(
-                "NaN in lookAtTargetReward.\n" +
-                $" cubeForward: {cubeForward}\n" +
-                $" head.forward: {head.forward}"
-            );
+            AddReward(-1.0f);
+            targetController.ResetSuccessCounter();
+            EndEpisode();
+            return; 
         }
 
-        AddReward(matchSpeedReward * lookAtTargetReward);
+        // --- STATE-DEPENDENT LOGIC ---
+        if (m_IsApproachingStairs)
+        {
+            // --- PHASE 1: APPROACHING THE WAYPOINT ---
+            // Blue ball should be OFF
+            if(footTargetVisualizer != null) footTargetVisualizer.SetActive(false);
+
+            // --- PHASE 1: APPROACHING THE WAYPOINT WITH SPEED CONTROL ---
+            Vector3 directionToWaypoint = m_StairApproachTarget.position - hips.position;
+            directionToWaypoint.y = 0;
+            float distanceToWaypoint = directionToWaypoint.magnitude;
+
+            Vector3 avgVel = GetAvgVelocity();
+            avgVel.y = 0;
+
+            // 1. Calculate the agent's current speed component IN THE DIRECTION of the waypoint.
+            // This is positive if moving towards, negative if moving away.
+            float velocityTowardsWaypoint = Vector3.Dot(directionToWaypoint.normalized, avgVel);
+            AddReward(velocityTowardsWaypoint * 0.5f);
+
+            // 2. Define the ideal speed.
+            // The target speed should not exceed the distance to the target.
+            // This naturally encourages deceleration.
+            // Debug.Log($"Distance: {distanceToWaypoint:F2}, Velocity Towards: {velocityTowardsWaypoint:F2}");
+            float targetSpeed = Mathf.Min(velocityTowardsWaypoint, 0.5f * distanceToWaypoint);
+
+            // 3. Calculate the error between the agent's actual speed and the ideal speed.
+            float speedError = Mathf.Abs(avgVel.magnitude - targetSpeed);
+
+            // 4. The reward is a penalty for this error. The reward is highest (zero) when the error is zero.
+            float speedReward = -speedError;
+            
+            AddReward(speedReward * 0.3f); // Add a multiplier to tune its importance.
+        }
+        else
+        {
+            // --- PHASE 2: CLIMBING THE STAIRS ---
+            // --- ADD THESE LINES TO CREATE THE "LANE" CHECK ---
+            Vector3 vectorToAgent = hips.position - staircase.position;
+            // The staircase's "sideways" direction is its local Z-axis (.forward)
+            float sideDistance = Vector3.Dot(vectorToAgent, staircase.forward);
+            // The width of the lane is based on the staircase's scale
+            float halfStairWidth = staircase.lossyScale.z / 2.0f;
+
+            // --- WRAP YOUR VELOCITY REWARD IN THIS IF STATEMENT ---
+            // Only give the forward velocity reward if the agent is lined up with the stairs
+            if (Mathf.Abs(sideDistance) < halfStairWidth)
+            {
+                // This is your existing velocity reward code
+                Vector3 directionToTarget = target.position - hips.position;
+                directionToTarget.y = 0;
+                Vector3 avgVel = GetAvgVelocity();
+                avgVel.y = 0;
+                float velocityReward = Vector3.Dot(directionToTarget.normalized, avgVel);
+                AddReward(velocityReward * 0.3f);
+            }
+
+            // Reward and visualize moving feet towards the next step
+            GameObject nextStep = null;
+            if (targetController != null && targetController.steps != null)
+            {
+                foreach (var step in targetController.steps)
+                {
+                    if (step.transform.position.y > m_HighestStepY + 0.1f)
+                    {
+                        nextStep = step;
+                        break;
+                    }
+                }
+            }
+            if (nextStep != null)
+            {
+                // --- ADD THIS VISUALIZER LOGIC BACK ---
+                if(footTargetVisualizer != null) footTargetVisualizer.SetActive(true);
+                Vector3 targetPoint = nextStep.transform.position + Vector3.up * (nextStep.transform.localScale.y);
+                if(footTargetVisualizer != null) footTargetVisualizer.transform.position = targetPoint;
+                // --- END OF ADDED LOGIC ---
+
+                float closestFootDistance = Mathf.Min(Vector3.Distance(footL.position, targetPoint), Vector3.Distance(footR.position, targetPoint));
+                float footProximityReward = 1.0f / (1.0f + closestFootDistance);
+                AddReward(footProximityReward * 0.4f);
+            }
+            else
+            {
+                // --- ADD THIS VISUALIZER LOGIC BACK ---
+                if(footTargetVisualizer != null) footTargetVisualizer.SetActive(false);
+                // --- END OF ADDED LOGIC ---
+            }
+
+            // Reward gaining height
+            var hipHeight = hips.position.y;
+            var heightChange = hipHeight - m_LastHipYPosition;
+            AddReward(heightChange * 0.05f);
+            m_LastHipYPosition = hipHeight;
+
+            
+        }
     }
 
     //Returns the average velocity of all of the body parts
@@ -303,5 +486,37 @@ public class WalkerAgent : Agent
     public void SetResetParameters()
     {
         SetTorsoMass();
+    }
+
+    public void StartLandingPhase()
+    {
+        m_IsLanding = true;
+    }
+
+    // We'll call this from FootContact to end the landing phase
+    public void LandedOnNewStep()
+    {
+        m_IsLanding = false;
+    }
+
+    public void ResetStairProgress()
+    {
+        m_HighestStepY = 0f;
+    }
+
+    public void ReachedWaypoint()
+    {
+        // Only switch phases if we are currently in the approaching phase.
+        // This prevents it from triggering multiple times.
+        if (m_IsApproachingStairs)
+        {
+            m_IsApproachingStairs = false;
+            Debug.Log("Waypoint reached! Switching to final target.");
+        }
+    }
+
+    public void StartApproachPhase()
+    {
+        m_IsApproachingStairs = true;
     }
 }
