@@ -2,6 +2,12 @@
 
 The stair climber environment is built on top of the Walker environment, it still lives in `Project/Assets/ML-Agents/Examples/Walker`. It is trained to continuously walk to and then climb stairs followed by jumping off and landing, then it heads to the next staircase which is randomly positioned in the environment.
 
+A 40M training step checkpoint is included in `results/StairWalker/WalkerDynamic`.
+You can continue training with:
+```bash
+mlagents-learn config/ppo/Walker.yaml --run-id=results/StairWalker/WalkerDynamic. --no-graphics --resume
+```
+
 
 # Unity ML-Agents Toolkit
 

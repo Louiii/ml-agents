@@ -1,0 +1,65 @@
+{
+    "WalkerDynamic": {
+        "checkpoints": [
+            {
+                "steps": 39999945,
+                "file_path": "results/StairWalkerRun12./WalkerDynamic/WalkerDynamic-39999945.onnx",
+                "reward": 2198.642357720269,
+                "creation_time": 1752213847.2948673,
+                "auxillary_file_paths": [
+                    "results/StairWalkerRun12./WalkerDynamic/WalkerDynamic-39999945.pt"
+                ]
+            },
+            {
+                "steps": 40499917,
+                "file_path": "results/StairWalkerRun12./WalkerDynamic/WalkerDynamic-40499917.onnx",
+                "reward": 1667.3267959594727,
+                "creation_time": 1752214423.5811355,
+                "auxillary_file_paths": [
+                    "results/StairWalkerRun12./WalkerDynamic/WalkerDynamic-40499917.pt"
+                ]
+            },
+            {
+                "steps": 40999869,
+                "file_path": "results/StairWalkerRun12./WalkerDynamic/WalkerDynamic-40999869.onnx",
+                "reward": 1797.3008843315972,
+                "creation_time": 1752215002.3704488,
+                "auxillary_file_paths": [
+                    "results/StairWalkerRun12./WalkerDynamic/WalkerDynamic-40999869.pt"
+                ]
+            },
+            {
+                "steps": 41499702,
+                "file_path": "results/StairWalkerRun12./WalkerDynamic/WalkerDynamic-41499702.onnx",
+                "reward": 1697.1621218363443,
+                "creation_time": 1752215631.18123,
+                "auxillary_file_paths": [
+                    "results/StairWalkerRun12./WalkerDynamic/WalkerDynamic-41499702.pt"
+                ]
+            },
+            {
+                "steps": 41595153,
+                "file_path": "results/StairWalkerRun12./WalkerDynamic/WalkerDynamic-41595153.onnx",
+                "reward": 1697.8974021173292,
+                "creation_time": 1752215760.3178284,
+                "auxillary_file_paths": [
+                    "results/StairWalkerRun12./WalkerDynamic/WalkerDynamic-41595153.pt"
+                ]
+            }
+        ],
+        "final_checkpoint": {
+            "steps": 41595153,
+            "file_path": "results/StairWalkerRun12./WalkerDynamic.onnx",
+            "reward": 1697.8974021173292,
+            "creation_time": 1752215760.3178284,
+            "auxillary_file_paths": [
+                "results/StairWalkerRun12./WalkerDynamic/WalkerDynamic-41595153.pt"
+            ]
+        }
+    },
+    "metadata": {
+        "stats_format_version": "0.3.0",
+        "mlagents_version": "0.30.0",
+        "torch_version": "2.7.1+cu126"
+    }
+}
